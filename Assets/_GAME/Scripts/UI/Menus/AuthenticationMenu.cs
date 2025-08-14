@@ -1,3 +1,4 @@
+using Aventra.Game.Core;
 using Aventra.Game.Utils;
 using System;
 using TMPro;
@@ -17,6 +18,10 @@ namespace Aventra.Game
         public override void Open()
         {
             base.Open();
+
+            if (PlayerPrefs.HasKey(Constants.PlayerPrefsKeys.PLAYER_NICK_NAME))
+                nickname.text = PlayerPrefs.GetString(Constants.PlayerPrefsKeys.PLAYER_NICK_NAME);
+
             applyButton.onClick.AddListener(Apply);
             nickname.onValueChanged.AddListener(OnValueChanged);
         }
@@ -37,6 +42,7 @@ namespace Aventra.Game
         {
             if (!nickname.text.IsNullOrEmpty())
             {
+                PlayerPrefs.SetString(Constants.PlayerPrefsKeys.PLAYER_NICK_NAME, nickname.text);
                 PlayerAccount.SetPlayerName(nickname.text);
                 Close();
                 createOrJoinLobbyMenu.Open();
