@@ -12,16 +12,26 @@ namespace Aventra.Game
 {
     public sealed class CreateOrJoinLobbyMenu : BaseMenu
     {
-        [SerializeField] private TMP_InputField lobbyNameInputLabel;
-        [SerializeField] private TMP_InputField lobbyPasswordInputLabel;
-        [SerializeField] private TMP_InputField lobbyIDInputLabel;
+        [SerializeField] private TMP_InputField IFLobbyName;
+        [SerializeField] private TMP_InputField IFLobbyPassword;
+        [SerializeField] private TMP_InputField IFLobbyJoinCode;
         [SerializeField] private Slider lobbyMaxPlayerSlider;
         [SerializeField] private TMP_Text lblPlayerAmount;
         [SerializeField] private Toggle lobbyPrivateToggle;
         [SerializeField] private Toggle lobbyLockToggle;
         [SerializeField] private Button btnCreateLobby;
         [SerializeField] private Button btnJoinLobby;
+        [SerializeField] private Button btnQuickJoin;
         [SerializeField] private TMP_Text lblPlayerName;
+        [Header("Menus")]
+        [SerializeField] private LobbyMenu lobbyMenu;
+
+        private int MaxPlayerAmount => (int)lobbyMaxPlayerSlider.value;
+        private string LobbyName => IFLobbyName.text;
+        private string LobbyPassword => IFLobbyPassword.text;
+        private string JoinCode => IFLobbyJoinCode.text;
+        private bool LobbyPrivate => lobbyPrivateToggle.isOn;
+        private bool LobbyLock => lobbyLockToggle.isOn;
 
         private void Start()
         {
@@ -33,38 +43,59 @@ namespace Aventra.Game
         public override void Open()
         {
             base.Open();
-            lobbyNameInputLabel.onValueChanged.AddListener(LobbyNameOnValueChanged);
             lobbyMaxPlayerSlider.onValueChanged.AddListener(SliderOnValueChanged);
             lobbyLockToggle.onValueChanged.AddListener(LobbyLockOnValueChanged);
-            lobbyPasswordInputLabel.onValueChanged.AddListener(LobbyPasswordOnValueChanged);
-            btnCreateLobby.onClick.AddListener(CreateLobby);
+            IFLobbyName.onValueChanged.AddListener(LobbyNameOnValueChanged);
+            IFLobbyPassword.onValueChanged.AddListener(LobbyPasswordOnValueChanged);
+            IFLobbyJoinCode.onValueChanged.AddListener(LobbyIdOnValueChanged);
 
-            lobbyIDInputLabel.onValueChanged.AddListener(LobbyIdOnValueChanged);
-            btnJoinLobby.onClick.AddListener(JoinLobby);
+            btnJoinLobby.onClick.AddListener(JoinLobbyByCode);
+            btnQuickJoin.onClick.AddListener(OnQuickJoin);
+            btnCreateLobby.onClick.AddListener(CreateLobby);
             ApplyPlayerName();
         }
 
         public override void Close()
         {
             base.Close();
-            lobbyNameInputLabel.onValueChanged.RemoveListener(LobbyNameOnValueChanged);
             lobbyMaxPlayerSlider.onValueChanged.RemoveListener(SliderOnValueChanged);
             lobbyLockToggle.onValueChanged.RemoveListener(LobbyLockOnValueChanged);
-            lobbyPasswordInputLabel.onValueChanged.RemoveListener(LobbyPasswordOnValueChanged);
+            IFLobbyName.onValueChanged.RemoveListener(LobbyNameOnValueChanged);
+            IFLobbyPassword.onValueChanged.RemoveListener(LobbyPasswordOnValueChanged);
+            IFLobbyJoinCode.onValueChanged.RemoveListener(LobbyIdOnValueChanged);
+
+            btnJoinLobby.onClick.RemoveListener(JoinLobbyByCode);
+            btnQuickJoin.onClick.RemoveListener(OnQuickJoin);
             btnCreateLobby.onClick.RemoveListener(CreateLobby);
-
-            lobbyIDInputLabel.onValueChanged.RemoveListener(LobbyIdOnValueChanged);
-            btnJoinLobby.onClick.RemoveListener(JoinLobby);
         }
-
 
         private async void CreateLobby()
         {
-            await HandleCreateLobby();
+            bool isSuccess = await Multiplayer.Instance.CreateLobby(LobbyName, MaxPlayerAmount);
+            if (isSuccess)
+            {
+                lobbyMenu.Open();
+                Close();
+            }
         }
-        private void JoinLobby()
+        private async void JoinLobbyByCode()
         {
-            throw new NotImplementedException();
+            bool isSuccess = await Multiplayer.Instance.JoinLobby(JoinCode);
+            if (isSuccess)
+            {
+                lobbyMenu.Open();
+                Close();
+            }
+        }
+
+        private async void OnQuickJoin()
+        {
+            bool isSuccess = await Multiplayer.Instance.QuickJoinLobby();
+            if (isSuccess)
+            {
+                lobbyMenu.Open();
+                Close();
+            }
         }
 
         private void LobbyIdOnValueChanged(string arg0)
@@ -84,11 +115,11 @@ namespace Aventra.Game
 
         private void LobbyLockOnValueChanged(bool arg0)
         {
-            lobbyPasswordInputLabel.interactable = arg0;
+            IFLobbyPassword.interactable = arg0;
             CreateLobbyButtonInteractable();
 
             if (!arg0)
-                lobbyPasswordInputLabel.text = string.Empty;
+                IFLobbyPassword.text = string.Empty;
         }
 
         private void LobbyPasswordOnValueChanged(string arg0)
@@ -100,15 +131,15 @@ namespace Aventra.Game
         {
             btnCreateLobby.interactable =
                 (!lobbyLockToggle.isOn
-                && InputFieldIsFull(lobbyNameInputLabel))
+                && InputFieldIsFull(IFLobbyName))
                 || (lobbyLockToggle.isOn 
-                && InputFieldIsFull(lobbyNameInputLabel) 
-                && InputFieldIsFull(lobbyPasswordInputLabel));
+                && InputFieldIsFull(IFLobbyName) 
+                && InputFieldIsFull(IFLobbyPassword));
         }
 
         private void JoinLobbyButtonInteractable()
         {
-            btnJoinLobby.interactable = InputFieldIsFull(lobbyIDInputLabel);
+            btnJoinLobby.interactable = InputFieldIsFull(IFLobbyJoinCode);
         }
 
         private void ApplyPlayerAmountLabel()
@@ -120,36 +151,6 @@ namespace Aventra.Game
         {
             if (PlayerAccount.HasName)
                 lblPlayerName.text = PlayerAccount.GetPlayerName().Trim();
-        }
-
-        private async Task<bool> HandleCreateLobby()
-        {
-            try
-            {
-                LobbyHandler lobbyHandler = new LobbyHandler(
-                    lobbyNameInputLabel.text.Trim(),
-                    (int)lobbyMaxPlayerSlider.value,
-                    !lobbyPrivateToggle.isOn,
-                    lobbyLockToggle.isOn,
-                    lobbyPasswordInputLabel.text
-                    );
-
-                CreateLobbyOptions options = new CreateLobbyOptions()
-                {
-                    IsLocked = lobbyHandler.Lock,
-                    IsPrivate = !lobbyHandler.IsVisible,
-                    Password = lobbyHandler.Password
-                };
-
-                Lobby lobby = await LobbyService.Instance.CreateLobbyAsync(lobbyHandler.LobbyName, lobbyHandler.MaxPlayer, options);
-                Debug.Log($"Lobby Olusturuldu!");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"Lobby Olusturulamadi: {ex.Message}");
-                return false;
-            }
         }
 
         private bool InputFieldIsFull(TMP_InputField inputField)
