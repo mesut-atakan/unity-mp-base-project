@@ -1,3 +1,5 @@
+using Unity.Services.Lobbies;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -6,12 +8,10 @@ using Unity.Netcode.Transports.UTP;
 using Unity.Networking.Transport.Relay;
 using Unity.Services.Authentication;
 using Unity.Services.Core;
-using Unity.Services.Lobbies;
 using Unity.Services.Lobbies.Models;
 using Unity.Services.Relay;
 using Unity.Services.Relay.Models;
 using UnityEngine;
-using WebSocketSharp;
 
 namespace Aventra.Game
 {
@@ -39,6 +39,7 @@ namespace Aventra.Game
         private const string DTLS_ENCRYPTION = "dtls"; // Datagram Transport Layer Security
         private const string WSS_ENCRYPTION = "wss"; // Web Socket Secure, use for WebGL builds
 
+        public event Action<IReadOnlyList<Player>> OnLobbyPlayersChanged;
 
         //[SerializeField] private string lobbyName = "Lobby";
         //[SerializeField] private int maxPlayer = 4;
@@ -55,6 +56,8 @@ namespace Aventra.Game
         private float _heartbeatTimer;
         private float _pollTimer;
         private bool _signedInHooked;
+        private HashSet<string> _lastPlayerIds = new HashSet<string>();
+        private ILobbyEvents _subscription;
 
         public bool IsLobbyHost =>
             CurrentLobby != null &&
@@ -106,7 +109,8 @@ namespace Aventra.Game
                 var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
                 ConfigureTransportForHost(allocation, transport);
                 NetworkManager.Singleton.StartHost();
-
+                RaisePlayersChangedIfNeeded(CurrentLobby.Players);
+                await SubscribeLobbyEventAsync();
                 return true;
             }
             catch (LobbyServiceException e)
@@ -132,6 +136,8 @@ namespace Aventra.Game
                 ConfigureTransportForClient(joinAllocation, unityTransport);
                 NetworkManager.Singleton.StartClient();
                 Debug.Log($"Joined lobby: {CurrentLobby.Name}\tWith Code: {CurrentLobby.LobbyCode}", gameObject);
+                RaisePlayersChangedIfNeeded(CurrentLobby.Players);
+                await SubscribeLobbyEventAsync();
                 return true;
             }
             catch (LobbyServiceException e)
@@ -157,6 +163,8 @@ namespace Aventra.Game
                 ConfigureTransportForClient(joinAllocation, unityTransport);
                 NetworkManager.Singleton.StartClient();
                 Debug.Log($"Joined lobby: {CurrentLobby.Name}\tWith Code: {CurrentLobby.LobbyCode}", gameObject);
+                RaisePlayersChangedIfNeeded(CurrentLobby.Players);
+                await SubscribeLobbyEventAsync();
                 return true;
             }
             catch (LobbyServiceException e)
@@ -164,6 +172,50 @@ namespace Aventra.Game
                 Debug.LogError($"Failed to allocate relay: {e.Message}", gameObject);
                 return false;
             }
+        }
+
+        private void RaisePlayersChangedIfNeeded(IReadOnlyList<Player> players)
+        {
+            var current = new HashSet<string>(players.Select(p => p.Id));
+            if (!_lastPlayerIds.SetEquals(current))
+            {
+                _lastPlayerIds = current;
+                OnLobbyPlayersChanged?.Invoke(players);
+            }
+        }
+
+        private async void OnLobbyChangedPush()
+        {
+            // Push geldiðinde snapshot’ý çek, sonra UI event’ini tetikle
+            try
+            {
+                var lobby = await LobbyService.Instance.GetLobbyAsync(CurrentLobby.Id);
+                CurrentLobby = lobby;
+                RaisePlayersChangedIfNeeded(CurrentLobby.Players);
+            }
+            catch (LobbyServiceException e)
+            {
+                Debug.LogWarning($"Push update failed: {e.Message}");
+            }
+        }
+
+        private async Task SubscribeLobbyEventAsync()
+        {
+            var callbacks = new LobbyEventCallbacks();
+
+            // Oyuncu girdi/çýktý
+            callbacks.PlayerJoined += _ => OnLobbyChangedPush();
+            callbacks.PlayerLeft += _ => OnLobbyChangedPush();
+
+            // (Ýsteðe baðlý) veri/isim deðiþimleri vs. varsa onlarý da tek yerden yakala
+            callbacks.DataChanged += _ => OnLobbyChangedPush();
+            callbacks.LobbyChanged += _ => OnLobbyChangedPush();
+
+            // Not: Bazý sürümlerde bazý callback'ler olmayabilir;
+            // olanlarý eklemen yeterli.
+
+            _subscription = await LobbyService.Instance
+                .SubscribeToLobbyEventsAsync(CurrentLobby.Id, callbacks);
         }
 
         private async Task<Allocation> AllocateRelay(int maxPlayer)
@@ -363,6 +415,7 @@ namespace Aventra.Game
                 var lobby = await LobbyService.Instance.GetLobbyAsync(CurrentLobby.Id);
                 CurrentLobby = lobby;
                 Debug.Log("Polled updates for: " + lobby.Name);
+                RaisePlayersChangedIfNeeded(CurrentLobby.Players);
             }
             catch (LobbyServiceException e)
             {
