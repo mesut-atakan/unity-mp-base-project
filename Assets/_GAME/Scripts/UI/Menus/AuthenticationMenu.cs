@@ -42,8 +42,16 @@ namespace Aventra.Game
         {
             if (!nickname.text.IsNullOrEmpty())
             {
+                applyButton.interactable = false;
                 PlayerPrefs.SetString(Constants.PlayerPrefsKeys.PLAYER_NICK_NAME, nickname.text);
-                await Multiplayer.Instance.CreateUser(nickname.text);
+                bool isSuccess = await Multiplayer.Instance.CreateUser(nickname.text);
+                if (!isSuccess)
+                {
+                    applyButton.interactable = true;
+                    return;
+                }
+
+                applyButton.interactable = true;
                 Close();
                 createOrJoinLobbyMenu.Open();
             }

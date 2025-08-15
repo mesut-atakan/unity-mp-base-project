@@ -71,31 +71,40 @@ namespace Aventra.Game
 
         private async void CreateLobby()
         {
+            SetAllInputInteractable(false);
             bool isSuccess = await Multiplayer.Instance.CreateLobby(LobbyName, MaxPlayerAmount);
             if (isSuccess)
             {
                 lobbyMenu.Open();
                 Close();
+                return;
             }
+            SetAllInputInteractable(true);
         }
         private async void JoinLobbyByCode()
         {
+            SetAllInputInteractable(false);
             bool isSuccess = await Multiplayer.Instance.JoinLobby(JoinCode);
             if (isSuccess)
             {
                 lobbyMenu.Open();
                 Close();
+                return;
             }
+            SetAllInputInteractable(true);
         }
 
         private async void OnQuickJoin()
         {
+            SetAllInputInteractable(false);
             bool isSuccess = await Multiplayer.Instance.QuickJoinLobby();
             if (isSuccess)
             {
                 lobbyMenu.Open();
                 Close();
+                return;
             }
+            SetAllInputInteractable(true);
         }
 
         private void LobbyIdOnValueChanged(string arg0)
@@ -150,6 +159,19 @@ namespace Aventra.Game
         private void ApplyPlayerName()
         {
             lblPlayerName.text = Multiplayer.Instance.PlayerName;
+        }
+
+        private void SetAllInputInteractable(bool v)
+        {
+            IFLobbyName.interactable = v;
+            lobbyMaxPlayerSlider.interactable = v;
+            lobbyPrivateToggle.interactable = v;
+            lobbyLockToggle.interactable = v;
+            IFLobbyPassword.interactable = v;
+            IFLobbyJoinCode.interactable = v;
+            btnJoinLobby.interactable = v;
+            btnQuickJoin.interactable = v;
+            btnCreateLobby.interactable = v;
         }
 
         private bool InputFieldIsFull(TMP_InputField inputField)
