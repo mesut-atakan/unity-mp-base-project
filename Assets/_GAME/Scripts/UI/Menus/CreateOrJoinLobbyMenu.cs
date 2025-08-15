@@ -149,8 +149,7 @@ namespace Aventra.Game
 
         private void ApplyPlayerName()
         {
-            if (PlayerAccount.HasName)
-                lblPlayerName.text = PlayerAccount.GetPlayerName().Trim();
+            lblPlayerName.text = Multiplayer.Instance.PlayerName;
         }
 
         private bool InputFieldIsFull(TMP_InputField inputField)

@@ -38,12 +38,12 @@ namespace Aventra.Game
             applyButton.interactable = !nickname.text.IsNullOrEmpty();
         }
 
-        private void Apply()
+        private async void Apply()
         {
             if (!nickname.text.IsNullOrEmpty())
             {
                 PlayerPrefs.SetString(Constants.PlayerPrefsKeys.PLAYER_NICK_NAME, nickname.text);
-                PlayerAccount.SetPlayerName(nickname.text);
+                await Multiplayer.Instance.CreateUser(nickname.text);
                 Close();
                 createOrJoinLobbyMenu.Open();
             }
