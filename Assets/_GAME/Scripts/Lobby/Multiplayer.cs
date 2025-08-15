@@ -11,6 +11,7 @@ using Unity.Services.Lobbies.Models;
 using Unity.Services.Relay;
 using Unity.Services.Relay.Models;
 using UnityEngine;
+using WebSocketSharp;
 
 namespace Aventra.Game
 {
@@ -31,6 +32,7 @@ namespace Aventra.Game
     /// </summary>
     public class Multiplayer : MonoBehaviour
     {
+        public const string DISPLAY_NAME = "displayName";
         private const float LOBBY_HEARTBEAT_INTERVAL = 20.0f;
         private const float LOBBY_POLL_INTERVAL = 65.0f;
         private const string KEY_JOIN_CODE = "RelayJoinCode";
@@ -52,20 +54,27 @@ namespace Aventra.Game
 
         private float _heartbeatTimer;
         private float _pollTimer;
+        private bool _signedInHooked;
 
-        private string ConnectionType => encryption == EncryptionType.DTLS ? DTLS_ENCRYPTION : WSS_ENCRYPTION;
+        public bool IsLobbyHost =>
+            CurrentLobby != null &&
+            AuthenticationService.Instance.IsSignedIn &&
+            CurrentLobby.HostId == AuthenticationService.Instance.PlayerId;
 
-        private async void Start()
+        private void Start()
         {
             Instance = this;
             DontDestroyOnLoad(this);
-
-            await Authenticate();
         }
 
         private void Update()
         {
             LobbyHearbeatTimer();
+        }
+
+        public async Task<bool> CreateUser(string userName)
+        {
+            return await Authenticate(userName);
         }
 
         public async Task<bool> CreateLobby(string lobbyName, int maxPlayer)
@@ -74,10 +83,11 @@ namespace Aventra.Game
             {
                 Allocation allocation = await AllocateRelay(maxPlayer);
                 string joinCode = await GetRelayJoinCode(allocation);
-
+                Player me = AddLobbyPlayer();
                 CreateLobbyOptions options = new CreateLobbyOptions()
                 {
-                    IsPrivate = false
+                    IsPrivate = false,
+                    Player = me
                 };
 
                 CurrentLobby = await LobbyService.Instance.CreateLobbyAsync(lobbyName, maxPlayer, options);
@@ -96,6 +106,7 @@ namespace Aventra.Game
                 var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
                 ConfigureTransportForHost(allocation, transport);
                 NetworkManager.Singleton.StartHost();
+
                 return true;
             }
             catch (LobbyServiceException e)
@@ -109,7 +120,9 @@ namespace Aventra.Game
         {
             try
             {
-                CurrentLobby = await LobbyService.Instance.JoinLobbyByCodeAsync(joinCode);
+                Player me = AddLobbyPlayer();
+                CurrentLobby = await LobbyService.Instance.JoinLobbyByCodeAsync(joinCode, new JoinLobbyByCodeOptions { 
+                    Player = me});
                 ResetTimer();
 
                 string relayJoinCode = CurrentLobby.Data[KEY_JOIN_CODE].Value;
@@ -132,7 +145,9 @@ namespace Aventra.Game
         {
             try
             {
-                CurrentLobby = await LobbyService.Instance.QuickJoinLobbyAsync();
+                Player me = AddLobbyPlayer();
+                CurrentLobby = await LobbyService.Instance.QuickJoinLobbyAsync(
+                    new QuickJoinLobbyOptions { Player = me});
                 ResetTimer();
 
                 string relayJoinCode = CurrentLobby.Data[KEY_JOIN_CODE].Value;
@@ -151,49 +166,6 @@ namespace Aventra.Game
             }
         }
 
-        /// <summary>
-        /// Oyuncu herghangi bir isim girmediginde bu fonksiyon cagrilir "Player", random 0,1000" arasinda bir deger verilir
-        /// </summary>
-        /// <returns></returns>
-        private async Task Authenticate()
-        {
-            await Authenticate("Player" + UnityEngine.Random.Range(0, 1000));
-        }
-
-        /// <summary>
-        /// Oyuncu bir isim belirttiginde bu fonksiyon kullanilir
-        /// </summary>
-        /// <param name="playerName">oyuncunun ismi ile bir Authenticate olusturulur.</param>
-        /// <returns></returns>
-        private async Task Authenticate(string playerName)
-        {
-            // Unity Service Henus Baslatilmadiysa:
-            if (UnityServices.State == ServicesInitializationState.Uninitialized)
-            {
-                InitializationOptions options = new InitializationOptions(); // Unity Service initialize ayarlari olusturulur
-                options.SetProfile(playerName); // oyuncunun Profili (bir nevi kimligi) olusturulur
-
-                await UnityServices.InitializeAsync(options); // Unity Service asenkron sekilde baslatilir.
-            }
-
-            // Oyuncu Unity Authentication Service'a baglanir.
-            AuthenticationService.Instance.SignedIn += () =>
-                Debug.Log($"Signed in as Name: {AuthenticationService.Instance.PlayerName}\tID: {AuthenticationService.Instance.PlayerId}", gameObject);
-
-            // Oyuncu giris yapmadiysa / yapamadiysa
-            // Oyuncunun anaonim olarak giris yapmasini saglar.
-            // Email/sifre istemez; Unity otomatik olarak cihaz veya profil bazli giris yapar.
-            // (Anonim giriþte genelde "Player_xxxxx" gibi bir ad olur.)
-            if (!AuthenticationService.Instance.IsSignedIn)
-            {
-                // Oyuncunun bilgileri rastgele olusturulur.
-                await AuthenticationService.Instance.SignInAnonymouslyAsync();
-                // Yerel degiskenlere oyuncunun bilgileri girilir.
-                PlayerID = AuthenticationService.Instance.PlayerId;
-                PlayerName = AuthenticationService.Instance.PlayerName;
-            }
-        }
-
         private async Task<Allocation> AllocateRelay(int maxPlayer)
         {
             try
@@ -205,6 +177,57 @@ namespace Aventra.Game
             {
                 Debug.LogError($"Failed to allocate relay: {e.Message}", gameObject);
                 return default;
+            }
+        }
+
+        private async Task<bool> Authenticate(string playerName)
+        {
+            try
+            {
+                // 1) Initialize (profil istersen kalabilir ama isim deðildir)
+                if (UnityServices.State == ServicesInitializationState.Uninitialized)
+                {
+                    var options = new InitializationOptions()
+                        .SetProfile(playerName); // farklý cihaz/profil simülasyonu için faydalý, ama isim deðil
+                    await UnityServices.InitializeAsync(options);
+                }
+
+                // 2) Event'i 1 kez baðla
+                if (!_signedInHooked)
+                {
+                    AuthenticationService.Instance.SignedIn += () =>
+                        Debug.Log($"Signed in. ID: {AuthenticationService.Instance.PlayerId} | Name(now): {AuthenticationService.Instance.PlayerName}");
+                    _signedInHooked = true;
+                }
+
+                // 3) Giriþ yap
+                if (!AuthenticationService.Instance.IsSignedIn)
+                    await AuthenticationService.Instance.SignInAnonymouslyAsync();
+
+                // 4) Görünen ismi ayarla (esas kýsým)
+                if (AuthenticationService.Instance.PlayerName != playerName)
+                {
+                    try
+                    {
+                        await AuthenticationService.Instance.UpdatePlayerNameAsync(playerName);
+                    }
+                    catch (AuthenticationException ex)
+                    {
+                        Debug.LogWarning($"Player name set failed (will continue): {ex.Message}");
+                    }
+                }
+
+                // 5) Yerel alanlarý güncelle
+                PlayerID = AuthenticationService.Instance.PlayerId;
+                PlayerName = AuthenticationService.Instance.PlayerName; // artýk playerName olmalý
+
+                Debug.Log($"Player ready -> {PlayerName} ({PlayerID})");
+                return true;
+            }
+            catch (AuthenticationException e)
+            {
+                Debug.LogError($"Failed SignIn: {e.Message}", gameObject);
+                return false;
             }
         }
 
@@ -236,24 +259,19 @@ namespace Aventra.Game
             }
         }
 
-        private void LobbyHearbeatTimer()
+        private Player AddLobbyPlayer()
         {
-            if (CurrentLobby == null) return;
-
-            _heartbeatTimer -= Time.deltaTime;
-            _pollTimer -= Time.deltaTime;
-
-            if (_heartbeatTimer <= 0f)
+            var me = new Player
             {
-                _heartbeatTimer = LOBBY_HEARTBEAT_INTERVAL;
-                _ = HandleHeartbeatAsync();
-            }
+                Data = new Dictionary<string, PlayerDataObject>
+                {
+                    {DISPLAY_NAME, new PlayerDataObject(
+                        PlayerDataObject.VisibilityOptions.Member,
+                        Multiplayer.Instance.PlayerName) }
+                }
+            };
 
-            if (_pollTimer <= 0f)
-            {
-                _pollTimer = LOBBY_POLL_INTERVAL;
-                _ = HandlePollForUpdatesAsync();
-            }
+            return me;
         }
 
         private void ConfigureTransportForHost(Allocation allocation, UnityTransport transport)
@@ -300,8 +318,32 @@ namespace Aventra.Game
             transport.SetRelayServerData(data);
         }
 
+        private void LobbyHearbeatTimer()
+        {
+            if (CurrentLobby == null) return;
+
+            // Poll: tüm oyuncularda çalýþýr
+            _pollTimer -= Time.deltaTime;
+            if (_pollTimer <= 0f)
+            {
+                _pollTimer = LOBBY_POLL_INTERVAL;
+                _ = HandlePollForUpdatesAsync();
+            }
+
+            // Heartbeat: sadece host
+            if (!IsLobbyHost) return;
+
+            _heartbeatTimer -= Time.deltaTime;
+            if (_heartbeatTimer <= 0f)
+            {
+                _heartbeatTimer = LOBBY_HEARTBEAT_INTERVAL;
+                _ = HandleHeartbeatAsync();
+            }
+        }
+
         private async Task HandleHeartbeatAsync()
         {
+            if (!IsLobbyHost) return;
             try
             {
                 await LobbyService.Instance.SendHeartbeatPingAsync(CurrentLobby.Id);
@@ -312,6 +354,7 @@ namespace Aventra.Game
                 Debug.LogError("Heartbeat failed: " + e.Message);
             }
         }
+
 
         private async Task HandlePollForUpdatesAsync()
         {
@@ -329,8 +372,9 @@ namespace Aventra.Game
 
         private void ResetTimer()
         {
-            _heartbeatTimer = 0.0f;
-            _pollTimer = 0.0f;
+            _pollTimer = 0f;                                                // poll herkeste
+            _heartbeatTimer = IsLobbyHost ? 0f : float.PositiveInfinity;    // host deðilse asla çalýþmasýn
         }
+
     }
 }
