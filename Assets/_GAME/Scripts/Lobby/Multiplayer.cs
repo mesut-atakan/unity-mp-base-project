@@ -174,6 +174,11 @@ namespace Aventra.Game
             }
         }
 
+        public string GetJoinCode()
+        {
+            return CurrentLobby.LobbyCode;
+        }
+
         private void RaisePlayersChangedIfNeeded(IReadOnlyList<Player> players)
         {
             var current = new HashSet<string>(players.Select(p => p.Id));

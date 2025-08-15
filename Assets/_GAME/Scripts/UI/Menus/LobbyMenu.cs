@@ -5,6 +5,7 @@ using Aventra.Game.Utils;
 using Unity.Services.Lobbies.Models;
 using System.Collections.Generic;
 using System.Linq;
+using System;
 
 namespace Aventra.Game
 {
@@ -12,39 +13,56 @@ namespace Aventra.Game
     {
         [SerializeField] private TMP_Text lblLobbyName;
         [SerializeField] private TMP_Text lblMaxPlayerAmount;
+        [SerializeField] private TMP_Text lblLobbyCode;
         [SerializeField] private Button btnExit;
         [SerializeField] private Button btnReady;
+        [SerializeField] private Button btnCoppyJoinCode;
         [SerializeField] private PlayerInLobbyCard playerLobbyCardPrefab;
         [SerializeField] private Transform playerGroup;
 
         private List<PlayerInLobbyCard> _playerCards = new List<PlayerInLobbyCard>();
-
+        private string _lobbyJoinCode;
         public override void Open()
         {
             base.Open();
             if (Multiplayer.Instance.IsEnteredLobby)
             {
+                _lobbyJoinCode = Multiplayer.Instance.GetJoinCode();
+                btnCoppyJoinCode.onClick.AddListener(OnCoppyJoinCode);
                 SetLobbyName(Multiplayer.Instance.CurrentLobby.Name);
                 SetMaxPlayerAmount(Multiplayer.Instance.CurrentLobby.MaxPlayers);
+                SetLobbyCode(_lobbyJoinCode);
                 LoadPlayers();
                 Multiplayer.Instance.OnLobbyPlayersChanged += OnHandlePlayersChanged;
             }
         }
 
+
         public override void Close()
         {
             base.Close();
 
+            btnCoppyJoinCode.onClick.RemoveListener(OnCoppyJoinCode);
+            _lobbyJoinCode = null;
+            
             if (Multiplayer.Instance != null)
             {
                 Multiplayer.Instance.OnLobbyPlayersChanged -= OnHandlePlayersChanged;
             }
         }
 
+        private void OnCoppyJoinCode()
+        {
+            if (_lobbyJoinCode == null) return;
+
+            GUIUtility.systemCopyBuffer = _lobbyJoinCode;
+            Debug.Log($"Coppy Join Code: {_lobbyJoinCode}", gameObject);
+        }
+
         private void CreatePlayerCard(string playerName, bool isAdmin, Player player)
         {
             var obj = Instantiate(playerLobbyCardPrefab, playerGroup);
-            obj.SetPlayer(playerName + "\t" + player.Id, isAdmin, player);
+            obj.SetPlayer(playerName, isAdmin, player);
             _playerCards.Add(obj);
         }
 
@@ -59,6 +77,7 @@ namespace Aventra.Game
 
         private void SetLobbyName(string lobbyName) => lblLobbyName.text = lobbyName;
         private void SetMaxPlayerAmount(int maxPlayerAmount) => lblMaxPlayerAmount.text = maxPlayerAmount.ToString();
+        private void SetLobbyCode(string lobbyJoinCode) => lblLobbyCode.text = lobbyJoinCode;
 
         private string GetPlayerName(Player player)
         {
