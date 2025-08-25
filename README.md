@@ -12,25 +12,25 @@ The workflow follows Unity’s recommended **Relay + Lobby** structure for peer-
 ## 🚀 Features
 
 - **Authentication**
- - Anonymous sign-in via Unity Authentication Service
- - Player name assignment and storage in `PlayerPrefs`
+  - Anonymous sign-in via Unity Authentication Service
+  - Player name assignment and storage in `PlayerPrefs`
 
 - **Lobby System**
- - Create lobbies with custom names
- - Set maximum player count dynamically
- - Option to lock or make lobbies private
- - Retrieve and copy join codes
- - Player join/leave tracking in real-time
+  - Create lobbies with custom names
+  - Set maximum player count dynamically
+  - Option to lock or make lobbies private
+  - Retrieve and copy join codes
+  - Player join/leave tracking in real-time
 
 - **Relay Integration**
- - Automatic relay allocation for host and clients
- - Secure **DTLS** (Datagram TLS) connections for reliable data transfer
- - WebSocket Secure **(WSS)** support for WebGL builds
+  - Automatic relay allocation for host and clients
+  - Secure **DTLS** (Datagram TLS) connections for reliable data transfer
+  - WebSocket Secure **(WSS)** support for WebGL builds
 
 - **UI System**
- - Authentication menu
- - Lobby creation/join menu
- - Active lobby display with player cards
+  - Authentication menu
+  - Lobby creation/join menu
+  - Active lobby display with player cards
 
 ---
 
@@ -62,9 +62,9 @@ The workflow follows Unity’s recommended **Relay + Lobby** structure for peer-
 
 1. Open the **Unity Dashboard.**
 2. Enable the following services:
- - Authentication
- - Relay
- - Lobby
+  - Authentication
+  - Relay
+  - Lobby
 
 3. Link your Unity project to the Unity Dashboard (via **Project Settings → Services**).
 
@@ -92,9 +92,9 @@ Use Unity Package Manager and install:
 Player enters a nickname → signs in → proceeds to lobby menu.
 
 2. **Lobby Menu**
- - Create a lobby
- - Join by code
- - Quick join
+  - Create a lobby
+  - Join by code
+  - Quick join
 
 3. **Active Lobby Scene**
 Displays players in the lobby and manages relay connection setup.
