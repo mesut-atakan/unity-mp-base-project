@@ -338,3 +338,240 @@ Bu dokümandan sonra en faydalı uygulama sırası:
 5. Match sonu economy güncelleme
 
 Bu 5 adımı düzgün kurarsan, üretime yakın bir temel multiplayer omurgan olur.
+
+---
+
+## 20) Örnek Yapı (Kopyala-Uyarla Şablon)
+
+Bu bölüm, anlattığımız mimarinin somut bir örnek iskeletidir.
+
+### 20.1 Önerilen Klasör Yapısı
+
+```text
+Assets/_GAME/Scripts/
+   Core/
+      Bootstrap/
+         GameBootstrapper.cs
+   Services/
+      Ugs/
+         UgsInitializer.cs
+         UgsAuthService.cs
+         UgsProfileService.cs
+         UgsEconomyService.cs
+         UgsCloudCodeService.cs
+   PlayerState/
+      Models/
+         PlayerStateSnapshot.cs
+         JoinConnectionPayload.cs
+      MainMenu/
+         MainMenuPlayerStateStore.cs
+         MainMenuPlayerStateBootstrapper.cs
+   UI/
+      Menu/
+         MainMenuPresenter.cs
+         MultiplayerManagerMenu.cs
+   Networking/
+      Server/
+         ServerApprovalHandler.cs
+         ServerPlayerSpawnService.cs
+```
+
+---
+
+### 20.2 Sınıf Sorumlulukları (Kim ne yapar?)
+
+#### `UgsInitializer`
+- Unity Services başlatır.
+- Oyun boyunca tek sefer initialize garantisi verir.
+
+#### `UgsAuthService`
+- Authentication sign-in yönetir.
+- Gerekirse tekrar oturum açma yapar.
+
+#### `UgsProfileService`
+- Cloud Save üzerinden isim/level/xp gibi verileri okur.
+
+#### `UgsEconomyService`
+- Economy üzerinden gold/gem bakiyesini okur.
+
+#### `UgsCloudCodeService`
+- `CreateJoinToken` ve `ValidateJoinToken` gibi endpoint çağrılarını yapar.
+
+#### `MainMenuPlayerStateStore`
+- Main menu’nun okuduğu tek state kaynağıdır.
+- UI doğrudan UGS çağırmaz; store’dan beslenir.
+
+#### `MainMenuPlayerStateBootstrapper`
+- Menu açıldığında profile + economy verisini toplayıp store’a yazar.
+
+#### `MultiplayerManagerMenu`
+- Oyuncu karakter seçimi + Play butonu yönetimi.
+- Play’de join token ister, payload hazırlayıp client bağlantısını başlatır.
+
+#### `ServerApprovalHandler`
+- ConnectionData parse eder.
+- Token doğrular.
+- Geçerli oyuncular için bağlantı onayı verir.
+
+#### `ServerPlayerSpawnService`
+- Onaylı client için player prefab spawn eder.
+- Seçili karakteri player’a uygular.
+
+---
+
+### 20.3 Veri Modelleri Örneği
+
+```csharp
+[System.Serializable]
+public sealed class PlayerStateSnapshot
+{
+      public string PlayerId;
+      public string Name;
+      public int Level;
+      public int Xp;
+      public long Gold;
+      public long Gem;
+      public ulong SelectedCharacterId;
+}
+```
+
+```csharp
+[System.Serializable]
+public struct JoinConnectionPayload
+{
+      public ulong CharacterId;
+      public string JoinToken;
+      public string BuildVersion;
+}
+```
+
+Not:
+- Payload minimal tutulur.
+- Gold/Gem/Level payload ile taşınmaz.
+
+---
+
+### 20.4 Main Menu Açılış Akışı (Pseudo Code)
+
+```csharp
+await UgsInitializer.InitializeAsync();
+await UgsAuthService.SignInAsync();
+
+var profileTask = UgsProfileService.LoadProfileAsync();
+var economyTask = UgsEconomyService.LoadWalletAsync();
+
+await Task.WhenAll(profileTask, economyTask);
+
+var snapshot = BuildSnapshot(profileTask.Result, economyTask.Result);
+mainMenuStore.Set(snapshot);
+mainMenuPresenter.Refresh(snapshot);
+```
+
+Amaç:
+- UI’ı hızlı açmak
+- Veriyi tek modelde toplamak
+
+---
+
+### 20.5 Play Butonu Akışı (Pseudo Code)
+
+```csharp
+async void OnClickPlay()
+{
+      ulong selectedCharacterId = characterSelection.CurrentId;
+
+      var tokenResult = await UgsCloudCodeService.CreateJoinTokenAsync(selectedCharacterId);
+
+      var payload = new JoinConnectionPayload
+      {
+            CharacterId = selectedCharacterId,
+            JoinToken = tokenResult.Token,
+            BuildVersion = Application.version
+      };
+
+      string json = JsonUtility.ToJson(payload);
+      NetworkManager.Singleton.NetworkConfig.ConnectionData = System.Text.Encoding.UTF8.GetBytes(json);
+
+      NetworkManager.Singleton.StartClient();
+}
+```
+
+---
+
+### 20.6 Server Approval Akışı (Pseudo Code)
+
+```csharp
+async void ApprovalCheck(Request req, Response res)
+{
+      var payload = Parse(req.Payload);
+
+      if (payload == null)
+      {
+            Reject(res, "Payload invalid");
+            return;
+      }
+
+      if (!IsSupportedVersion(payload.BuildVersion))
+      {
+            Reject(res, "Version mismatch");
+            return;
+      }
+
+      var validation = await UgsCloudCodeService.ValidateJoinTokenAsync(payload.JoinToken, payload.CharacterId);
+      if (!validation.IsValid)
+      {
+            Reject(res, "Token invalid");
+            return;
+      }
+
+      clientStateMap[req.ClientNetworkId] = validation.ServerState;
+
+      res.Approved = true;
+      res.CreatePlayerObject = false;
+}
+```
+
+---
+
+### 20.7 Spawn Akışı (Pseudo Code)
+
+```csharp
+void OnClientConnected(ulong clientId)
+{
+      if (!clientStateMap.TryGetValue(clientId, out var state))
+      {
+            return;
+      }
+
+      var player = Instantiate(playerPrefab, spawnPoint.position, Quaternion.identity);
+      player.SetupCharacterById(state.SelectedCharacterId);
+      player.ApplyServerState(state.Level, state.Gold, state.Gem);
+
+      player.NetworkObject.SpawnAsPlayerObject(clientId, true);
+}
+```
+
+---
+
+### 20.8 Hızlı Kontrol Listesi
+
+- `NetworkObject` sadece Player’da var mı?
+- Character seçimi payload’da var mı?
+- Payload parse/doğrulama var mı?
+- Token doğrulama var mı?
+- Economy/progression server-truth mu?
+- Approval başarısızlığında net reason dönülüyor mu?
+
+---
+
+### 20.9 Bu Şablonu Ne Zaman Genişletirsin?
+
+Şu durumlarda ek bileşen ekleyebilirsin:
+- Party sistemi: partyId ve leader akışı
+- Dereceli mod: MMR tabanlı matchmaking
+- Çok sunuculu bölge: region-aware queue
+- Canlı operasyon: remote config ile feature flag
+
+Öneri:
+- Önce bu iskeleti stabil kur.
+- Sonra modüler şekilde genişlet.
